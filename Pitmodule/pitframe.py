@@ -1,3 +1,4 @@
+from tabnanny import check
 import openpyxl
 import pandas as pd
 import os
@@ -43,6 +44,7 @@ class PitFrame:
             self.__divide_cities()
             self.__short_frame()
             self.__lower()
+            self.__check_types()
 
             
         
@@ -83,6 +85,7 @@ class PitFrame:
         df.rename(columns=map_col_names,inplace=True)
         df.reset_index(drop=True, inplace = True)
         df.drop(df.index[0:6],inplace=True)
+        df.reset_index(drop=True,inplace= True)
         # self.key_columns += list(set(df.columns) -set(['wk','pk','gt','klDzial','klParagraf','saldoZaleglosciNetto']))
         return df
     
@@ -93,10 +96,12 @@ class PitFrame:
                 assert check_data_pit(x)
             self.__is_simplified = True
     
-    def __short_frame(self):    
-        self.data['Gminy'] = self.data['Gminy'][['gt',"jst","wojewodztwo","powiat","naleznosci"]]
-        self.data['Powiaty'] = self.data['Powiaty'][["jst","wojewodztwo","powiat","naleznosci"]]
-        self.data['Wojewodztwa'] = self.data['Wojewodztwa'][["jst","wojewodztwo","powiat","naleznosci"]]
+    def __short_frame(self):
+        for x in self.data.keys():
+            if x != 'Gminy':
+                self.data[x] = self.data[x][['jst','wojewodztwo','powiat','naleznosci']]
+            else:
+                self.data[x] = self.data[x][['gt','jst','wojewodztwo','powiat','naleznosci']]   
 
     def __lower(self):
         for x in self.data.values():
@@ -166,4 +171,30 @@ class PitFrame:
         with pd.ExcelWriter(path_name,engine = 'openpyxl') as writer:
             for key in self.data:
                 self.data[key].to_excel(writer,sheet_name = str(key))
+    
+    def __check_types(self):
+        self.data['Gminy'] = self.data['Gminy'].astype({'gt':int})
+        for x in self.data.keys():
+            self.data[x] = self.data[x].astype({'naleznosci':float,'jst':str})
+    
+    def count_tax_income(self):
+        tt= 0.17 # stands for tax treshold
+        
+        for x in self.data.keys():
+            self.data[x]['dochod'] = self.data[x]['naleznosci'].apply(lambda x: x/tt)
+    
+    def get_TASK2(self,other):
+        index = ['Gminy','Powiaty','Wojewodztwa','Metropolia']
+        for x in index:
+            if x == 'Gminy':
+                self.data[x] = pd.merge(self.data[x],other.data[x],how="inner",on=['gt','jst'])
+            else:
+                self.data[x] = pd.merge(self.data[x],other.data[x],how="inner",on=['jst'])
+            
+            # calculate dochod-per-capita 
+            self.data[x]['dochod-per-capita'] = self.data[x]['dochod']/self.data[x]['ludnosc']
+            
+
+
+
 

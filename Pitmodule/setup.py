@@ -6,6 +6,6 @@ setup(
     version="1.0",
     author="Adam Domoslawski",
     py_modules=["pitmodule"],
-    install_requires = ['pandas','numpy'],
+    install_requires = ['pandas','numpy','openpyxl','xlrd'],
     test_requires = ['pytest']
 )

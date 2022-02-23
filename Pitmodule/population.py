@@ -2,6 +2,12 @@ import pandas as pd
 from .pitframe import PitFrame
 import numpy as np
 
+def clear_symbols(x):
+    data = x.split(".")
+    if len(data) > 0:
+        return data[1].lower()
+    return x
+
 class PopulationFrame:
     def __init__(self, path = "./data",is_path=True):
         self.data = {}
@@ -10,11 +16,13 @@ class PopulationFrame:
             self.path = path + "/ludnosc_stan_struktura"
             self.read_data()
             self.__reddit()
+            self.__gminyformat()
     
     def read_data(self):
         self.data["Gminy"] = pd.read_excel(self.path + "/Tabela_IV.xls",skiprows=7)
         self.data["Powiaty"] = pd.read_excel(self.path + "/Tabela_III.xls",skiprows=7)
-        self.data["Wojewodztwa"] = pd.read_excel(self.path + "/Tabela_II.xls",skiprows=7) 
+        self.data["Wojewodztwa"] = pd.read_excel(self.path + "/Tabela_II.xls",skiprows=7)
+        self.data['Metropolia'] = pd.DataFrame({'jst':["górnośląsko-zagłębiowska\nmetropolia"],"ludnosci" :[2072200]}) 
     
     def shapes(self):
         return [x.shape for x in self.data.values()] 
@@ -25,7 +33,7 @@ class PopulationFrame:
         powiaty_gminy = {"Gminy":self.data["Gminy"],"Powiaty":self.data["Powiaty"]}
         for name,frame in powiaty_gminy.items():
             lastcol = frame.shape[1]
-            frame.rename(columns={frame.columns[0] : "nazwa",
+            frame.rename(columns={frame.columns[0] : "jst",
                         frame.columns[1] :"id",
                         frame.columns[2] : "ludnosc"}
                         ,inplace=True)
@@ -35,9 +43,9 @@ class PopulationFrame:
             frame.reset_index(drop=True,inplace=True)
             frame = frame.drop(["id"],axis =1)
             self.data[name]=frame
-        
+
         wojew = self.data["Wojewodztwa"]
-        wojew.rename(columns={wojew.columns[0]:"Wojewodztwo",
+        wojew.rename(columns={wojew.columns[0]:"jst",
                               wojew.columns[1]:"ludnosc"},inplace=True)
         
         wojew = wojew.loc[wojew["ludnosc"].notna()]
@@ -46,9 +54,9 @@ class PopulationFrame:
         wojew = wojew.drop(wojew.index[17:],axis=0)
         wojew.reset_index(drop=True,inplace=True)
         self.data["Wojewodztwa"] = wojew
-        
-    def __differ_gminy(self):
-        pass
+
+        # for x in self.data.keys():
+        #     self.data[x] = self.data[x].astype({'jst':str,'ludnosc':int})
 
     def __miasta_powiaty(self):
         m_powiaty = None
@@ -69,25 +77,20 @@ class PopulationFrame:
 
             gminy = self.data["Gminy"]
             condition = [
-                (gminy['nazwa'].str.contains("M\.")),
-                (gminy['nazwa'].str.contains("G\.")),
-                (gminy['nazwa'].str.contains("M-W\.")),
+                (gminy['jst'].str.contains("M\.")),
+                (gminy['jst'].str.contains("G\.")),
+                (gminy['jst'].str.contains("M-W\.")),
             ]
-            gminy['jst'] = np.select(condition,gmnina_values)
+            gminy['gt'] = np.select(condition,gmnina_values)
 
             # clean jst names
-            gminy['nazwa'] = gminy['nazwa'].apply(lambda x: x[2:] if 'M\.' in x else x)
-            gminy['nazwa'] = gminy['nazwa'].apply(lambda x: x[4:] if 'M-W\.' in x else x)
-            gminy['nazwa'] = gminy['nazwa'].apply(lambda x: x[2:] if 'G\.' in x else x)
-            self.data['Gminy'] = gminy
-            
+            gminy['jst']  = gminy['jst'].apply(clear_symbols)
+            self.data['Gminy'] = gminy 
+  
 
 
 
-    def __gminyshort(self):
-            m_powiaty = self.data["Miasta_Powiaty"] = self.__miasta_powiaty()
-            self.data["Miasta_Gminy"] = m_powiaty['nazwa'] #except those who municipalities with law of a county
-            pass
+    
 
         
         
