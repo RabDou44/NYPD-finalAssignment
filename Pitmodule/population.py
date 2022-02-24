@@ -1,12 +1,17 @@
 import pandas as pd 
 from .pitframe import PitFrame
 import numpy as np
+import typing
 
 def clear_symbols(x):
     data = x.split(".")
     if len(data) > 0:
         return data[1].lower()
     return x
+
+def make_code_book(names):
+        codes = [str(2*x).zfill(2) for x in range(1,17)]
+        return dict(zip(names,codes))
 
 default_tables ={
     "Gminy":"tabela12.xls",
@@ -28,7 +33,13 @@ age_cond = ['27','28','29',
                 '80-84',
                 '75iwięcej',
                 '80iwięcej',
-                '85iwięcej'
+                '85iwięcej',
+                '90iwięcej',
+                '95iwięcej',
+                '85-89',
+                '90-94',
+                '95-99',
+                '100latiwięcej'
             ]
 
 class PopulationFrame:
@@ -36,49 +47,42 @@ class PopulationFrame:
         self.data = {}
         self.is_built = False
         self.tabs = tabs
+        self.avg_inc = {}
         if is_path:
             self.path = path
             self._read_data2()
-            #self.__reddit()
-            #self.__gminyformat()
-    
-    def _read_data(self):
-        tabs =self.tabs
-        self.data["Gminy"] = pd.read_excel(self.path + tabs['Gminy'],skiprows=7)
-        self.data["Powiaty"] = pd.read_excel(self.path + tabs['Powiaty'],skiprows=7)
-        self.data["Wojewodztwa"] = pd.read_excel(self.path + tabs['Wojewodztwa'],skiprows=7)
-        self.data['Metropolia'] = pd.DataFrame({'jst':["górnośląsko-zagłębiowska\nmetropolia"],"ludnosci" :[2072200],'id':'24'}) 
-    
+            self._short_id()
+            #self._merge_duze_miasta()
+            self._short_gminy()
+
     def shapes(self):
         return [x.shape for x in self.data.values()] 
 
     # edit all 
     def _read_data2(self):
         tabs = self.tabs
-        for jst in tabs:
+        for jst in ['Gminy','Powiaty']:
             jst_frame = pd.DataFrame()
             
-            with pd.ExcelFile(self.path +tabs[jst]) as xls:
+            with pd.ExcelFile("./data/ludnosc_stan_struktura/"+tabs[jst]) as xls:
                 for sheet in xls.sheet_names:
-                    tmp =pd.read_excel(xls,sheet_name=sheet,skiprows =7,usecols="A:C")
-                    
-                    # rename columns
+                    tmp = pd.read_excel(xls,sheet_name=sheet,skiprows=7,usecols="A:C",converters={'Unnamed: 0':str,'Unnamed: 1':str,'Unnamed: 2':str})
                     m={tmp.columns[0]:"jst",
-                    tmp.columns[1]: "id",
-                    tmp.columns[2]: "populacja"}
+                            tmp.columns[1]: "id",
+                            tmp.columns[2]: "ludnosc"}
+
                     tmp = tmp.rename(columns= m)
-
-                    tmp = tmp.astype('str')
+                    tmp['id'] = tmp['id'].astype('str')
                     tmp.iloc[:,1] = tmp.iloc[:,1].str.replace(' ','')
+                    tmp.iloc[:,1] = tmp.iloc[:,1].str.replace('nan','')
                     tmp.iloc[:,0] = tmp.iloc[:,0].str.replace(' ','')
+                    tmp.iloc[:,0] = tmp.iloc[:,0].str.replace('Powiat','')
 
-                    #slicing & editing
-                    tmp =  tmp[tmp.iloc[:,1].apply(lambda x: len(str(x)) > 0 and not pd.isnull(x)) | tmp.iloc[:,0].isin(age_cond)]
-                    
-                    #preapare data for swaping values
-                    code_len = {'Gminy':7,'Powiaty':4,'Wojewodztwa':2}
-                    tmp.loc[tmp['id'].apply(lambda x: len(x) == code_len[jst]),'populacja'] = 0 
+                    tmp = tmp[ tmp.iloc[:,1].apply(lambda x: len(str(x)) > 0 and not pd.isnull(x)) | tmp.iloc[:,0].isin(age_cond)]
+                    tmp.loc[tmp['id'].apply(lambda x: len(x) == 7),'ludnosc'] = 0
+                    tmp.reset_index(drop=True,inplace=True)
 
+                    tmp.reset_index(drop=True,inplace=True)
                     val = tmp.iloc[0,1]
                     name =tmp. iloc[0,0]
                     df_dict = tmp.to_dict(orient='records')
@@ -88,84 +92,124 @@ class PopulationFrame:
                             row['jst'] = name
                         else:
                             val = row['id']
-                            row['populacja'] = 0
+                            row['ludnosc'] = 0
                             name = row['jst']
                     tmp = pd.DataFrame(df_dict)
-
-                    tmp['populacja'] = tmp['populacja'].astype(int)
-                    tmp  = tmp.groupby(by=['id','jst'])['populacja'].sum()
+                    tmp['ludnosc'] = tmp['ludnosc'].astype(int)
+                    tmp  = tmp.groupby(["id","jst"],as_index=False)["ludnosc"].sum()
+                    tmp = tmp[tmp['ludnosc'] > 0 ]
                     jst_frame = jst_frame.append(tmp)
-                    jst_frame.reset_index(drop=True,inplace=True)
-                
+                    jst_frame.reset_index(drop =True ,inplace = True)
+                        
             self.data[jst]= jst_frame
 
+        jst_frame = pd.DataFrame()
+        # seperately treat Wojewodztwa
+        with pd.ExcelFile("./data/ludnosc_stan_struktura/tabela03.xls") as xls:
+            for sheet in xls.sheet_names:
+                tmp = pd.read_excel(xls,sheet_name=sheet,skiprows=7,usecols="A:B",converters={'Unnamed: 0':str,'Unnamed: 1':int})
+                m={tmp.columns[0]:"jst",
+                        tmp.columns[1]: "ludnosc"}
 
+                tmp = tmp.rename(columns= m)
+                tmp.iloc[:,0] = tmp.iloc[:,0].str.replace(' ','')
+                tmp.iloc[:,0] = tmp.iloc[:,0].str.replace('\t','')
+                tmp.iloc[:,0] = tmp.iloc[:,0].str.replace('\n','')
+
+                tmp = tmp[tmp.iloc[:,0].isin(age_cond + xls.sheet_names)]
+                
+                df_dict = tmp.to_dict(orient='records')
+                name = ''
+                for row in df_dict:
+                    if row['jst'] in xls.sheet_names:
+                        name = row['jst']
+                        row['ludnosc'] = 0
+                    else:
+                        row['jst'] = name
+                tmp = pd.DataFrame(df_dict)
+                tmp  = tmp.groupby(["jst"],as_index=False)["ludnosc"].sum()
+                jst_frame = jst_frame.append(tmp)
+                jst_frame.reset_index(drop=True,inplace=True)
+
+                code_book = make_code_book(xls.sheet_names)
+                jst_frame['id'] = jst_frame['jst']
+                jst_frame['id'] = jst_frame['id'].map(code_book)
+
+        self.data['Wojewodztwa'] = jst_frame
+
+    def _unite_cities(self):
+        pass
     
-    def _reddit(self):
-        # axis 1 - col , 0 rows
-        powiaty_gminy = {"Gminy":self.data["Gminy"],"Powiaty":self.data["Powiaty"]}
-        for name,frame in powiaty_gminy.items():
-            lastcol = frame.shape[1]
-            frame.rename(columns={frame.columns[0] : "jst",
-                        frame.columns[1] :"id",
-                        frame.columns[2] : "ludnosc"}
-                        ,inplace=True)
+    def _short_id(self):
+        self.data['Gminy']['short id'] = self.data['Gminy']['id'].str[:4]
 
-            frame = frame.loc[frame["id"].notna()]
-            frame = frame.drop(frame.iloc[:,3:lastcol],axis=1)
-            frame.reset_index(drop=True,inplace=True)
-            frame = frame.drop(["id"],axis =1)
-            self.data[name]=frame
+    def _merge_duze_miasta(self):
+        # wycigamy miasta_npp z gmin 
+        # dla Powiatow nie musimy tego robic bo 
+        if 'short id' not in self.data["Gminy"]:
+            self._short_id()
+        lud_gminy = self.data["Gminy"]
 
-        wojew = self.data["Wojewodztwa"]
-        wojew.rename(columns={wojew.columns[0]:"jst",
-                              wojew.columns[1]:"ludnosc"},inplace=True)
+        # warszawa
+        lud_warszawy = lud_gminy[lud_gminy['id'].str[6].isin(['8'])]
+        lud_gminy = lud_gminy[~lud_gminy['id'].str[6].isin(['8'])]
+        lud_warszawy = lud_warszawy.groupby(['short id'],as_index=False)['ludnosc'].sum()
+        lud_warszawy['jst'] = 'Warszawa'
+        lud_gminy = lud_gminy.append(lud_warszawy)
+
+        #reszta miast
+        lud_miasta = lud_gminy[lud_gminy['id'].str[6].isin(['9'])]
+        lud_gminy = lud_gminy[~lud_gminy['id'].str[6].isin(['9'])]
+        lud_miasta['jst'] = lud_miasta['jst'].map(lambda x: x.split('-')[0])
+        lud_miasta = lud_miasta.groupby(['short id','jst'],as_index=False)['ludnosc'].sum()
+        lud_gminy = lud_gminy.append(lud_miasta)
         
-        wojew = wojew.loc[wojew["ludnosc"].notna()]
-        wojew = wojew.drop(wojew.iloc[:,2:wojew.shape[1]],axis=1)
-        wojew.reset_index(drop=True,inplace=True)
-        wojew = wojew.drop(wojew.index[17:],axis=0)
-        wojew.reset_index(drop=True,inplace=True)
-        self.data["Wojewodztwa"] = wojew
+        self.data['Gminy']= lud_gminy  
 
-        # for x in self.data.keys():
-        #     self.data[x] = self.data[x].astype({'jst':str,'ludnosc':int})
-
-    def __miasta_powiaty(self):
-        m_powiaty = None
-        if "Miasta_Powiaty" not in self.data:
-            powiaty = self.data["Powiaty"]
-            find_miasta = powiaty["nazwa"].str.contains("M\.")
-            m_powiaty = powiaty.loc[find_miasta]
-            self.data["Powiaty"] = powiaty.data[~find_miasta]    
-        else:
-            m_powiaty = self.data["Miasta_Powiaty"]
+    def _short_gminy(self):
+        lud_gminy = self.data['Gminy']
+        self.data['Gminy'] = lud_gminy[~lud_gminy['id'].str[6].isin(['8','9'])]
         
-        return m_powiaty
-
-    def _gminyformat(self):
-        # it' inaccurate cause there is no Metropolia
-        if 'gt' not in self.data:
-            gmnina_values = [1,2,3]
-
-            gminy = self.data["Gminy"]
-            condition = [
-                (gminy['jst'].str.contains("M\.")),
-                (gminy['jst'].str.contains("G\.")),
-                (gminy['jst'].str.contains("M-W\.")),
-            ]
-            gminy['gt'] = np.select(condition,gmnina_values)
-
-            # clean jst names
-            gminy['jst']  = gminy['jst'].apply(clear_symbols)
-            self.data['Gminy'] = gminy 
-  
-
-
-
+    def pull_miasta_npp(self,miasta_npp :pd.DataFrame):
+        #miasta_npp zbior miast-gmin ktore funkcjonuje na prawach powiatu na podstawie nich 
+        pass
     
-
+    def count_avg_gminy(self,pitGminy,pitMiastaGminy):
+        plp_gminy = self.data['Gminy'] 
+        gminy_not_cities = plp_gminy.merge(pitGminy,on='id')
+        gminy_cities = plp_gminy.merge(pitMiastaGminy,on='id')
         
+        gminy_all_data = gminy_not_cities.append(gminy_cities)
+        
+        gminy_all_data = gminy_all_data[['jst_x', 'ludnosc','naleznosci','dochod','id']]
+        gminy_all_data['dochod pelen'] = gminy_all_data['dochod']/0.3925
+        gminy_all_data['dochod pelen per capita'] = gminy_all_data['dochod pelen']/gminy_all_data['ludnosc']
+        
+        self.avg_inc['Gminy'] = gminy_all_data
+        return self.avg_inc['Gminy']
+
+    def count_avg_powiaty(self,pitPowiaty ,pitMiastaPowiaty):
+        plp_powiaty = self.data['Powiaty'] 
+        powiaty_not_cities = plp_powiaty.merge(pitPowiaty,on='id')
+        powiaty_cities = plp_powiaty.merge(pitMiastaPowiaty,on='id')
+        
+        powiaty_all_data = powiaty_not_cities.append(powiaty_cities)
+        
+        powiaty_all_data = powiaty_all_data[['jst_x', 'ludnosc','naleznosci','dochod','id']]
+        powiaty_all_data['dochod pelen'] = powiaty_all_data['dochod']/0.1025
+        powiaty_all_data['dochod pelen per capita'] = powiaty_all_data['dochod pelen']/powiaty_all_data['ludnosc']
+        
+        self.avg_inc['Powiaty'] =  powiaty_all_data
+        return self.avg_inc['Powiaty']
+    
+    def count_avg_wojewodztwa(self,pitWojewodztwa:pd.DataFrame):
+        plp_wojew = self.data['Wojewodztwa'] 
+        wojew_all_data = plp_wojew.merge(pitWojewodztwa,on='id')
+        wojew_all_data = wojew_all_data[['jst_x', 'ludnosc','naleznosci','dochod','id']]
+        wojew_all_data['dochod pelen'] = wojew_all_data['dochod']/0.016
+        wojew_all_data['dochod pelen per capita'] = wojew_all_data['dochod pelen']/wojew_all_data['ludnosc']
+        self.avg_inc['Wojewodztwa'] =  wojew_all_data
+        return self.avg_inc['Wojewodztwa']
         
         
     

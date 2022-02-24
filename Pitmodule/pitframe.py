@@ -109,7 +109,7 @@ class PitFrame:
     def _make_id(self):
         if 'id' not in self._key_columns and 'id' not in self.data['Gminy'].columns:
             for x in self.data.keys():
-                self.data[x] = self.data[x].astype({'wk':str,'pk':str,'gk':str})
+                self.data[x] = self.data[x].astype({'wk':str,'pk':str,'gk':str,'gt':str})
                 self.data[x]['id'] = self.data[x]['wk'] + self.data[x]['pk'] + self.data[x]['gk']+self.data[x]['gt']
                 self.data[x]['id'] = self.data[x]['id'].apply(lambda x: x.rstrip('-'))
 
@@ -184,9 +184,8 @@ class PitFrame:
                 self.data[key].to_excel(writer,sheet_name = str(key))
     
     def _check_types(self):
-        self.data['Gminy'] = self.data['Gminy'].astype({'gt':int})
         for x in self.data.keys():
-            self.data[x] = self.data[x].astype({'naleznosci':float,'jst':str,'wk':str,'pk':str,'gk':str})
+            self.data[x] = self.data[x].astype({'naleznosci':float,'jst':str,'wk':str,'pk':str,'gk':str,'gt':str})
     
     def count_tax_income(self):
         tt= 0.17 # stands for tax treshold
@@ -194,16 +193,7 @@ class PitFrame:
         for x in self.data.keys():
             self.data[x]['dochod'] = self.data[x]['naleznosci'].apply(lambda x: x/tt)
     
-    def get_TASK2(self,other):
-        index = ['Gminy','Powiaty','Wojewodztwa','Metropolia']
-        for x in index:
-            if x == 'Gminy':
-                self.data[x] = pd.merge(self.data[x],other.data[x],how="inner",on=['gt','jst'])
-            else:
-                self.data[x] = pd.merge(self.data[x],other.data[x],how="inner",on=['jst'])
             
-            # calculate dochod-per-capita 
-            self.data[x]['dochod-per-capita'] = self.data[x]['dochod']/self.data[x]['ludnosc']
             
 
 
