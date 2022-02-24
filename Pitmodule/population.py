@@ -8,27 +8,100 @@ def clear_symbols(x):
         return data[1].lower()
     return x
 
+default_tables ={
+    "Gminy":"tabela12.xls",
+    "Powiaty":"tabela06.xls",
+    "Wojewodztwa":"tabela03.xls"
+}
+
+age_cond = ['27','28','29',
+                '30-34',
+                '35-39',
+                '40-44',
+                '45-49',
+                '50-54',
+                '55-59',
+                '60-64',
+                '65-69',
+                '70-74',
+                '75-79',
+                '80-84',
+                '75iwięcej',
+                '80iwięcej',
+                '85iwięcej'
+            ]
+
 class PopulationFrame:
-    def __init__(self, path = "./data",is_path=True):
+    def __init__(self, path = "./data/ludnosc_stan_struktura/",is_path=True,tabs= default_tables):
         self.data = {}
         self.is_built = False
+        self.tabs = tabs
         if is_path:
-            self.path = path + "/ludnosc_stan_struktura"
-            self.read_data()
-            self.__reddit()
-            self.__gminyformat()
+            self.path = path
+            self._read_data2()
+            #self.__reddit()
+            #self.__gminyformat()
     
-    def read_data(self):
-        self.data["Gminy"] = pd.read_excel(self.path + "/Tabela_IV.xls",skiprows=7)
-        self.data["Powiaty"] = pd.read_excel(self.path + "/Tabela_III.xls",skiprows=7)
-        self.data["Wojewodztwa"] = pd.read_excel(self.path + "/Tabela_II.xls",skiprows=7)
-        self.data['Metropolia'] = pd.DataFrame({'jst':["górnośląsko-zagłębiowska\nmetropolia"],"ludnosci" :[2072200]}) 
+    def _read_data(self):
+        tabs =self.tabs
+        self.data["Gminy"] = pd.read_excel(self.path + tabs['Gminy'],skiprows=7)
+        self.data["Powiaty"] = pd.read_excel(self.path + tabs['Powiaty'],skiprows=7)
+        self.data["Wojewodztwa"] = pd.read_excel(self.path + tabs['Wojewodztwa'],skiprows=7)
+        self.data['Metropolia'] = pd.DataFrame({'jst':["górnośląsko-zagłębiowska\nmetropolia"],"ludnosci" :[2072200],'id':'24'}) 
     
     def shapes(self):
         return [x.shape for x in self.data.values()] 
 
     # edit all 
-    def __reddit(self):
+    def _read_data2(self):
+        tabs = self.tabs
+        for jst in tabs:
+            jst_frame = pd.DataFrame()
+            
+            with pd.ExcelFile(self.path +tabs[jst]) as xls:
+                for sheet in xls.sheet_names:
+                    tmp =pd.read_excel(xls,sheet_name=sheet,skiprows =7,usecols="A:C")
+                    
+                    # rename columns
+                    m={tmp.columns[0]:"jst",
+                    tmp.columns[1]: "id",
+                    tmp.columns[2]: "populacja"}
+                    tmp = tmp.rename(columns= m)
+
+                    tmp = tmp.astype('str')
+                    tmp.iloc[:,1] = tmp.iloc[:,1].str.replace(' ','')
+                    tmp.iloc[:,0] = tmp.iloc[:,0].str.replace(' ','')
+
+                    #slicing & editing
+                    tmp =  tmp[tmp.iloc[:,1].apply(lambda x: len(str(x)) > 0 and not pd.isnull(x)) | tmp.iloc[:,0].isin(age_cond)]
+                    
+                    #preapare data for swaping values
+                    code_len = {'Gminy':7,'Powiaty':4,'Wojewodztwa':2}
+                    tmp.loc[tmp['id'].apply(lambda x: len(x) == code_len[jst]),'populacja'] = 0 
+
+                    val = tmp.iloc[0,1]
+                    name =tmp. iloc[0,0]
+                    df_dict = tmp.to_dict(orient='records')
+                    for row in df_dict:
+                        if row['id'] == '' or pd.isnull(row['id']):
+                            row['id'] = val
+                            row['jst'] = name
+                        else:
+                            val = row['id']
+                            row['populacja'] = 0
+                            name = row['jst']
+                    tmp = pd.DataFrame(df_dict)
+
+                    tmp['populacja'] = tmp['populacja'].astype(int)
+                    tmp  = tmp.groupby(by=['id','jst'])['populacja'].sum()
+                    jst_frame = jst_frame.append(tmp)
+                    jst_frame.reset_index(drop=True,inplace=True)
+                
+            self.data[jst]= jst_frame
+
+
+    
+    def _reddit(self):
         # axis 1 - col , 0 rows
         powiaty_gminy = {"Gminy":self.data["Gminy"],"Powiaty":self.data["Powiaty"]}
         for name,frame in powiaty_gminy.items():
@@ -70,7 +143,7 @@ class PopulationFrame:
         
         return m_powiaty
 
-    def __gminyformat(self):
+    def _gminyformat(self):
         # it' inaccurate cause there is no Metropolia
         if 'gt' not in self.data:
             gmnina_values = [1,2,3]

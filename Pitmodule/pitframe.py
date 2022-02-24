@@ -1,4 +1,6 @@
+from distutils.command.build import build
 from tabnanny import check
+from matplotlib.pyplot import subplots_adjust
 import openpyxl
 import pandas as pd
 import os
@@ -28,54 +30,67 @@ def check_main_frame(main_frame):
 class PitFrame:
     def __init__(self,is_path=True,main_path=".",year=2020):
         self.data = {}
-        self.__uni_paths = {"Gminy":[],"Powiaty":[],"Miasta":[],"Wojewodztwa":[],"Metropolia":[]}
-        self.__data_path=main_path
-        self.__is_built = False
-        self.__is_simplified = False
-        self.__key_columns = ('gt','jst','wojewodztwo',"powiat","naleznosci")
+        self._jst_paths = {"Gminy":[],"Powiaty":[],"Miasta":[],"Wojewodztwa":[],"Metropolia":[]}
+        self._data_path=main_path
+        self._is_built = False
+        self._is_simplified = False
+        self._key_columns = ['gt','jst','wojewodztwo',"powiat","naleznosci"]
         self.year = 0
         
         if(is_path):
             self.year = year
-            self.build_paths(main_path,year)    
-            self.__build_data()
-            assert(self.__is_built)
-            self.__simplify_frame()
-            self.__divide_cities()
-            self.__short_frame()
-            self.__lower()
-            self.__check_types()
-
+            self._build_paths(main_path,year)    
+            self._build_data()
+            assert(self._is_built)
             
+            self._simplify_frame()
+            self._divide_cities()
+            self._check_types()
+
+            self._make_id()
+            self._short_frame()
+            self._lower()
+
+    def is_built(self):
+        return self._is_built
         
-    def build_paths(self,main_path,year):
-        self.__data_path = main_path + "/data"
-        assert(os.path.exists(self.__data_path))
-        self.file_paths = os.listdir(self.__data_path)
-        self.__assign_paths(year)
+    def _build_paths(self,main_path,year):
+        self._data_path = main_path + "/data"
+        assert(os.path.exists(self._data_path))
+        self.file_paths = os.listdir(self._data_path)
+        self._assign_paths(year)
         assert(self.are_paths_assigned())
         self.year = year
             
-    def __assign_paths(self,year):
-        for expr in self.__uni_paths:
-            self.__uni_paths[expr]= [x for x in self.file_paths if (expr in x and "_"+str(year) in x)][0]
+    def _assign_paths(self,year):
+        for expr in self._jst_paths:
+            self._jst_paths[expr]= [x for x in self.file_paths if (expr in x and "_"+str(year) in x)][0]
     
     def are_paths_assigned(self):
         cond = True
-        for x in self.__uni_paths.values():
+        for x in self._jst_paths.values():
             if x == []:
                 cond=False
         return cond
     
-    def __build_data(self):
-        if (not self.__is_built):
-            for x in self.__uni_paths: 
-                workbookPath =  self.__data_path + "/" + self.__uni_paths[x]
+    def _build_data(self):
+        if (not self._is_built):
+            for x in self._jst_paths: 
+                workbookPath =  self._data_path + "/" + self._jst_paths[x]
                 self.data[x] = pd.read_excel(workbookPath)
             
-            self.__is_built =  True if check_main_frame(self.data) else False
+            self._is_built =  True if check_main_frame(self.data) else False
     
-    def __simplify_header(self,df):
+    def _simplify_frame(self):
+        if(not self._is_simplified):
+            for x in self.data.keys():
+                self._simplify_header(x)
+                assert check_data_pit(self.data[x])
+            self._is_simplified = True
+    
+    
+    def _simplify_header(self,key_df):
+        df = self.data[key_df]
         map_col_names = {df.columns[0]:'wk',df.columns[1]:'pk',df.columns[2]:'gk',df.columns[3]:'gt',
                    df.columns[4]:'jst',df.columns[5]:'wojewodztwo',df.columns[6]:'powiat',
                    df.columns[7]:'klDzial',df.columns[8]:'klRozdzial',df.columns[9]:'klParagraf',
@@ -83,34 +98,38 @@ class PitFrame:
                    df.columns[13]:'saldoZaleglosciNetto',df.columns[14]:'saldoNadplaty'
                    }
         df.rename(columns=map_col_names,inplace=True)
+        
         df.reset_index(drop=True, inplace = True)
         df.drop(df.index[0:6],inplace=True)
+        
         df.reset_index(drop=True,inplace= True)
-        # self.key_columns += list(set(df.columns) -set(['wk','pk','gt','klDzial','klParagraf','saldoZaleglosciNetto']))
-        return df
-    
-    def __simplify_frame(self):
-        if(not self.__is_simplified):
-            for x in self.data.values():
-                x = self.__simplify_header(x)
-                assert check_data_pit(x)
-            self.__is_simplified = True
-    
-    def __short_frame(self):
-        for x in self.data.keys():
-            if x != 'Gminy':
-                self.data[x] = self.data[x][['jst','wojewodztwo','powiat','naleznosci']]
-            else:
-                self.data[x] = self.data[x][['gt','jst','wojewodztwo','powiat','naleznosci']]   
+        self.data[key_df] = df
 
-    def __lower(self):
+    
+    def _make_id(self):
+        if 'id' not in self._key_columns and 'id' not in self.data['Gminy'].columns:
+            for x in self.data.keys():
+                self.data[x] = self.data[x].astype({'wk':str,'pk':str,'gk':str})
+                self.data[x]['id'] = self.data[x]['wk'] + self.data[x]['pk'] + self.data[x]['gk']+self.data[x]['gt']
+                self.data[x]['id'] = self.data[x]['id'].apply(lambda x: x.rstrip('-'))
+
+            self._key_columns += ['id']
+            
+        
+
+    def _short_frame(self):
+        for x in self.data.keys():
+            self.data[x] = self.data[x][self._key_columns]
+
+
+    def _lower(self):
         for x in self.data.values():
             x['jst'] = x['jst'].str.lower()
     
     def shapes(self):
         return [x.shape for x in self.data.values()] 
     
-    def __divide_cities(self):
+    def _divide_cities(self):
         if "Miasta" in self.data:
             miastaDF = self.data["Miasta"]
             self.data['Miasta_Gminy'] = miastaDF.loc[miastaDF["klRozdzial"]==75621]
@@ -128,36 +147,28 @@ class PitFrame:
                 p.data[key_df] = self.data[key_df][["jst","wojewodztwo","powiat","naleznosci"]]
         return p
     
-    def compare(self, _o):
-        p = self.get_PIT() 
-        o  = _o.get_PIT()
-        tmp = PitFrame(is_path=False)
-        tmp.year = (str(self.year),str(_o.year))
-        assert self == _o
-        
+    def compare(self, other):
+        assert self == other and self.year != other.year
+        res = {}
+        s_suff = str(self.year)
+        o_suff = str(other.year)
         for x in self.data.keys():
-            key_cols = ['jst','powiat','wojewodztwo']
-            if x == 'Gminy':
-                key_cols += 'gt'
-            suf = (str(self.year),str(o.year))
-            tmp.data[x] = pd.merge(left=p.data[x],right=o.data[x],
-                                    on=key_cols,
-                                    suffixes=tmp.year)
-        del p,o
+            sub_data = self.data[x][['id','naleznosci']]
+            res[x] = pd.merge(sub_data,right=other.data[x],
+                                    on='id',
+                                    suffixes=(s_suff,o_suff))
+
+            res[x]["Roznica(%)"] = res[x]['naleznosci'+s_suff]/res[x]['naleznosci'+o_suff] - 1
         
-        # crating new column
-        for x in tmp.data.keys():
-            tmp.data[x]["Roznica(%)"] = tmp.data[x]['naleznosci2020']/tmp.data[x]['naleznosci2019'] - 1
-        
-        return tmp  
+        return res 
     
-    def __eq__(self,_o):
-        cond = self.data.keys() == _o.data.keys()
+    def __eq__(self,other):
+        cond = self.data.keys() == other .data.keys()
         if(cond):
             for x in self.data.keys():
                 if not cond:
                     break 
-                cond = self.data[x].shape == _o.data[x].shape
+                cond = self.data[x].shape == other .data[x].shape
         return cond
     
     def save_xlsx(self,path = "./",name = "pitframe"):
@@ -172,10 +183,10 @@ class PitFrame:
             for key in self.data:
                 self.data[key].to_excel(writer,sheet_name = str(key))
     
-    def __check_types(self):
+    def _check_types(self):
         self.data['Gminy'] = self.data['Gminy'].astype({'gt':int})
         for x in self.data.keys():
-            self.data[x] = self.data[x].astype({'naleznosci':float,'jst':str})
+            self.data[x] = self.data[x].astype({'naleznosci':float,'jst':str,'wk':str,'pk':str,'gk':str})
     
     def count_tax_income(self):
         tt= 0.17 # stands for tax treshold
