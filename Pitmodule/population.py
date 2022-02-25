@@ -3,6 +3,13 @@ from .pitframe import PitFrame
 import numpy as np
 import typing
 
+PROG_POD = 0.17
+UDZIAL = {
+    'Gminy':0.3925,
+    'Powiaty':0.1025,
+    'Wojewodztwa':0.016
+}
+
 def clear_symbols(x):
     data = x.split(".")
     if len(data) > 0:
@@ -48,6 +55,7 @@ class PopulationFrame:
         self.is_built = False
         self.tabs = tabs
         self.avg_inc = {}
+        self.var = {}
         if is_path:
             self.path = path
             self._read_data2()
@@ -142,6 +150,7 @@ class PopulationFrame:
     
     def _short_id(self):
         self.data['Gminy']['short id'] = self.data['Gminy']['id'].str[:4]
+        self.data['Powiaty']['short id'] = self.data['Powiaty']['id'].str[:2]
 
     def _merge_duze_miasta(self):
         # wycigamy miasta_npp z gmin 
@@ -175,41 +184,71 @@ class PopulationFrame:
         pass
     
     def count_avg_gminy(self,pitGminy,pitMiastaGminy):
-        plp_gminy = self.data['Gminy'] 
-        gminy_not_cities = plp_gminy.merge(pitGminy,on='id')
-        gminy_cities = plp_gminy.merge(pitMiastaGminy,on='id')
-        
-        gminy_all_data = gminy_not_cities.append(gminy_cities)
-        
-        gminy_all_data = gminy_all_data[['jst_x', 'ludnosc','naleznosci','dochod','id']]
-        gminy_all_data['dochod pelen'] = gminy_all_data['dochod']/0.3925
-        gminy_all_data['dochod pelen per capita'] = gminy_all_data['dochod pelen']/gminy_all_data['ludnosc']
-        
-        self.avg_inc['Gminy'] = gminy_all_data
+        if 'Gminy' not in self.avg_inc:
+            plp_gminy = self.data['Gminy'] 
+            gminy_not_cities = plp_gminy.merge(pitGminy,on='id')
+            gminy_cities = plp_gminy.merge(pitMiastaGminy,left_on='short id',right_on = 'id')
+            
+            gminy_all_data = gminy_not_cities.append(gminy_cities)
+            
+            gminy_all_data = gminy_all_data[['jst_x', 'ludnosc','naleznosci','id','short id']]
+            gminy_all_data['dochod'] = gminy_all_data['naleznosci']/(PROG_POD*UDZIAL['Gminy'])
+            gminy_all_data['dochod_per_capita'] = gminy_all_data['dochod']/gminy_all_data['ludnosc']
+            
+            self.avg_inc['Gminy'] = gminy_all_data
         return self.avg_inc['Gminy']
 
     def count_avg_powiaty(self,pitPowiaty ,pitMiastaPowiaty):
-        plp_powiaty = self.data['Powiaty'] 
-        powiaty_not_cities = plp_powiaty.merge(pitPowiaty,on='id')
-        powiaty_cities = plp_powiaty.merge(pitMiastaPowiaty,on='id')
-        
-        powiaty_all_data = powiaty_not_cities.append(powiaty_cities)
-        
-        powiaty_all_data = powiaty_all_data[['jst_x', 'ludnosc','naleznosci','dochod','id']]
-        powiaty_all_data['dochod pelen'] = powiaty_all_data['dochod']/0.1025
-        powiaty_all_data['dochod pelen per capita'] = powiaty_all_data['dochod pelen']/powiaty_all_data['ludnosc']
-        
-        self.avg_inc['Powiaty'] =  powiaty_all_data
+        if 'Powiaty' not in self.avg_inc:
+            plp_powiaty = self.data['Powiaty'] 
+            powiaty_not_cities = plp_powiaty.merge(pitPowiaty,on='id')
+            powiaty_cities = plp_powiaty.merge(pitMiastaPowiaty,on='id')
+            
+            powiaty_all_data = powiaty_not_cities.append(powiaty_cities)
+            
+            powiaty_all_data = powiaty_all_data[['jst_x', 'ludnosc','naleznosci','id','short id']]
+            powiaty_all_data['dochod'] = powiaty_all_data['naleznosci']/(PROG_POD*UDZIAL['Powiaty'])
+            powiaty_all_data['dochod_per_capita'] = powiaty_all_data['dochod']/powiaty_all_data['ludnosc']
+            
+            self.avg_inc['Powiaty'] =  powiaty_all_data
         return self.avg_inc['Powiaty']
     
     def count_avg_wojewodztwa(self,pitWojewodztwa:pd.DataFrame):
-        plp_wojew = self.data['Wojewodztwa'] 
-        wojew_all_data = plp_wojew.merge(pitWojewodztwa,on='id')
-        wojew_all_data = wojew_all_data[['jst_x', 'ludnosc','naleznosci','dochod','id']]
-        wojew_all_data['dochod pelen'] = wojew_all_data['dochod']/0.016
-        wojew_all_data['dochod pelen per capita'] = wojew_all_data['dochod pelen']/wojew_all_data['ludnosc']
-        self.avg_inc['Wojewodztwa'] =  wojew_all_data
+        if 'Wojewodztwa' not in self.avg_inc:
+            plp_wojew = self.data['Wojewodztwa'] 
+            wojew_all_data = plp_wojew.merge(pitWojewodztwa,on='id')
+            wojew_all_data = wojew_all_data[['jst_x', 'ludnosc','naleznosci','id']]
+            wojew_all_data['dochod'] = wojew_all_data['naleznosci']/(PROG_POD*UDZIAL['Wojewodztwa'])
+            wojew_all_data['dochod_per_capita'] = wojew_all_data['dochod']/wojew_all_data['ludnosc']
+            self.avg_inc['Wojewodztwa'] =  wojew_all_data
         return self.avg_inc['Wojewodztwa']
+
+
+    def variance_wojewodztwa(self):
+        if 'Wojewodztwa' not in self.var:
+            avg_wojewodztwa = self.avg_inc['Wojewodztwa']
+            avg_gminy = self.avg_inc['Powiaty']
+            avg_wojewodztwa = avg_wojewodztwa[['jst_x','id','dochod_per_capita']]
+            avg_gminy = avg_gminy[['jst_x','short id','dochod_per_capita']]
+            var_wojewodztwa = pd.merge(avg_wojewodztwa,avg_gminy,left_on='id', right_on='short id',suffixes=('_pow','_gm'))
+            var_wojewodztwa['part_var'] = (var_wojewodztwa['dochod_per_capita_gm'] - var_wojewodztwa['dochod_per_capita_pow']).pow(2)
+            var_wojewodztwa = var_wojewodztwa.groupby(['short id','jst_x_pow'],as_index=False)['part_var'].mean()
+            self.var['Wojewodztwa'] = var_wojewodztwa
+        return self.var['Wojewodztwa']
+
+    def var_powiaty(self):
+        if 'Powiaty' not in self.var:
+            avg_powiaty = self.avg_inc['Powiaty']
+            avg_gminy = self.avg_inc['Gminy']
+            avg_powiaty = avg_powiaty[['jst_x','id','dochod_per_capita']]
+            avg_gminy = avg_gminy[['jst_x','short id','dochod_per_capita']]
+            var_Powiaty = pd.merge(avg_powiaty,avg_gminy,left_on='id', right_on='short id',suffixes=('_pow','_gm'))
+            var_Powiaty['part_var'] = (var_Powiaty['dochod_per_capita_gm'] - var_Powiaty['dochod_per_capita_pow']).pow(2)
+            var_Powiaty = var_Powiaty.groupby(['short id','jst_x_pow'],as_index=False)['part_var'].mean()
+            self.var["Powiaty"] = var_Powiaty 
+        return self.var["Powiaty"]
+            
         
+ 
         
     
